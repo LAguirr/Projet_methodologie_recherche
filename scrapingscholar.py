@@ -1,38 +1,153 @@
-from bs4 import BeautifulSoup
+#!/usr/bin/env python3
+#_*-_ coding: utf-8 _*_
+
+
+###  Leonel Version
+import urllib.request
+import urllib.parse
+from bs4 import BeautifulSoup  
 import json
+import os
 
-with open("schoolargoogle.html", "r", encoding="utf-8") as f:
-    html = f.read()
+url =  'https://scholar.google.com/scholar?q='
+subjet_search = "proximal policy optimization ppo"
+encoded_search = urllib.parse.quote_plus(subjet_search)
+results_per_page = '&num=5'
+full_url = url + encoded_search + results_per_page
+print(full_url)
+user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.60 Safari/537.36'
+headers = {'User-Agent': user_agent}
 
-soup = BeautifulSoup(html, "html.parser")
-results = soup.find_all("div", class_="gs_r gs_or gs_scl")
+logs_json = []
+avoid_duplicates = []
 
-data = []
-for r in results:
-    # Titre et lien
-    title_tag = r.find("h3", class_="gs_rt")
-    link_tag = title_tag.find("a") if title_tag else None
+file_name = 'results_google_scholar.json'
 
-    # Auteurs et source
-    author_tag = r.find("div", class_="gs_a")
+def get_article(article): 
+    # Function to fetch and parse individual article pages if needed
 
-    # Résumé (s’il existe)
-    abstract_tag = r.find("div", class_="gs_rs")
-    abstract = abstract_tag.text.strip() if abstract_tag else "N/A"
+    print(f"\nDownloading article: {article}")
+    #if article['pdf'] == '[PDF]': #If there is no PDF available, skip
+    link = article['link']
+    title = article.get('title').replace('/', '_')
+    print(f"\nTrying to download: {title}")
+            
+    pdf_filename = f"{title}_GS.pdf"
 
-    # Mots-clés éventuels (certains liens sous la zone 'gs_fl')
-    keywords_tags = r.select(".gs_fl a")
-    keywords = [kw.text for kw in keywords_tags if kw.text and not kw.text.startswith("Cited")]
+    req = urllib.request.Request(link, headers={'User-Agent': user_agent})
+            
+    try:
 
-    data.append({
-        "title": title_tag.text if title_tag else "N/A",
-        "link": link_tag["href"] if link_tag else "N/A",
-        "authors": author_tag.text if author_tag else "N/A",
-        "abstract": abstract,
-        "keywords": keywords if keywords else []
-    })
+        with urllib.request.urlopen(req) as response:
+                    
+            pdf_content = response.read()
+            os.makedirs('pdf', exist_ok=True) #Create directory if it doesn't exist
+            full_file_path = os.path.join('pdf', pdf_filename)
+            with open(full_file_path, 'wb') as f_pdf:
+                       f_pdf.write(pdf_content)
+                
+            print(f"Download Succesfully. Saved as: {full_file_path}")
+            return full_file_path
 
-with open("results_google_scholar.json", "w", encoding="utf-8") as f:
-    json.dump(data, f, ensure_ascii=False, indent=4)
+            
+    except urllib.error.HTTPError as e:
+        print(f"Error HTTP downloading: {e.code}. The server refused the download.")
+    except urllib.error.URLError as e:
+        print(f"Error de URL downloading: {e.reason}")
+    except Exception as e:
+        print(f"Unexpected Error trying to download: {e}")
 
-print(f"✅ {len(data)} résultats extraits depuis la page locale (titre, auteurs, résumé, mots-clés).")
+def main():
+
+        file_web = open("schoolargoogle.html", "w+", encoding='utf-8')
+        req = urllib.request.Request(full_url, headers={'User-Agent': user_agent})
+        consult = urllib.request.urlopen(req)
+        consult_bytes = consult.read()
+    
+        consult_html = consult_bytes.decode('utf-8')
+    
+        print("Connection succesful. First 50 characters:")
+        print(consult_html[:50])
+
+        file_web.write(str(consult_bytes.decode('utf-8')))
+        file_web.close()
+
+        html= open("schoolargoogle.html", "r+")
+        soup = BeautifulSoup(consult_html, 'html.parser')
+        class_searched = 'gs_r gs_or gs_scl'
+        result = soup.find_all('div', class_=class_searched)
+    
+        for i, line in enumerate(result):
+
+
+            title_tag = line.find('h3', class_='gs_rt')
+            title = title_tag.text if title_tag else "N/A"
+            
+            pdf_tag = line.find('span', class_='gs_ctg2')
+            pdf = pdf_tag.text if pdf_tag else "N/A"
+                
+            link_tag = line.find('a')
+            link = link_tag['href'] if link_tag else "N/A"
+
+            site_tag = link.split('/')[2].split('.')[0] if link_tag else None
+            site = site_tag if site_tag !='www' else link.split('/')[2].split('.')[-2]
+
+            citations_tag = line.find('div', class_='gs_a')
+            citations = citations_tag.text.split('-')[0] if citations_tag else "N/A"
+            
+            print(f"\n--- Result {i+1} ---")
+            print(f"Site: {site}")
+            print(f"PDF: {pdf}")
+            print(f"Title: {title}")
+            print(f"Link: {link}")
+            print(f"Authors: {citations}")
+            
+            log = {
+                'site': site,
+                'title': title,
+                'link': link,
+                'authors': citations,
+                'pdf': pdf
+
+            }
+
+            logs_json.append(log)
+        #with open('results_google_scholar.json', 'w', encoding='utf-8') as f:
+            #json.dump(logs_json, f, ensure_ascii=False, indent=4)
+      
+
+        if os.path.exists(file_name):
+            with open(file_name, 'r', encoding='utf-8') as f:
+                try:
+                    file = json.load(f)
+
+                    # Avoid duplicates based on title
+                    titles = {item['title'] for item in file}
+
+                except json.JSONDecodeError:
+                    file = []
+        else: 
+            with open(file_name, 'w', encoding='utf-8') as f:
+                file = []
+                json.dump(file, f, ensure_ascii=False, indent=4)
+            titles = set()
+
+
+        for article in logs_json:
+            if article['title'] not in titles:
+                path = get_article(article)
+                
+                article['path'] = path
+                avoid_duplicates.append(article)
+                titles.add(article['title'])
+                
+
+        file.extend(avoid_duplicates)
+
+        with open(file_name, 'w', encoding='utf-8') as f:
+            json.dump(file, f, ensure_ascii=False, indent=4)
+
+
+if __name__ == '__main__':
+    main()
+    #article()
